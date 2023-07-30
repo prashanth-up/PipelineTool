@@ -1,0 +1,9 @@
+pandas
+numpy
+ydata-profiling
+streamlit-pandas-profiling
+Jinja2
+openai
+openpyxl
+streamlit_ace
+streamlit-lottie
