@@ -35,8 +35,8 @@ def load_data(file):
         raise ValueError("The file format is not supported. Please upload a CSV or Excel file.")
     return data
 
-# Function to Extract Features using GPT-3
 def extract_features(df, columns_to_use):
+    df = df.copy()  # Create a copy of the dataframe to avoid mutating the cached object.
     progress_bar = st.progress(0)
     allowed_columns = ['Strain', 'Brand', 'Unit', 'Flavor', 'THC', 'CBD']  # Define allowed columns
     for i, row in enumerate(df.iterrows()):
