@@ -1,11 +1,13 @@
-import os
-import pandas as pd
 import numpy as np
-import openai
+import pandas as pd
 import streamlit as st
+import openai
+import base64
+import io
 from ydata_profiling import ProfileReport
 from streamlit_pandas_profiling import st_profile_report
 
+# Web App Title
 st.markdown('''
 # **The GPT Extraction Pipeline**
 
@@ -16,30 +18,24 @@ App built for Dr. Shang's Lab Group
 ---
 ''')
 
-uploaded_file = st.sidebar.file_uploader("Upload your input CSV or Excel file", type=["csv", "xlsx"])
+# Upload CSV data
+with st.sidebar.header('1. Upload your data'):
+    uploaded_file = st.sidebar.file_uploader("Upload your input CSV or Excel file", type=["csv", "xlsx"])
+    output_file = st.sidebar.text_input('Output File Name', value='output', max_chars=None, key=None, type='default')
+    output_format = st.sidebar.selectbox('Output Format', ['csv', 'excel', 'both'])
 
-api_key = st.text_input('Insert your OpenAI API key here')
+# Function to Load Data
+@st.cache
+def load_data(file):
+    if file.type == 'text/csv':
+        data = pd.read_csv(file)
+    elif file.type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        data = pd.read_excel(file)
+    else:
+        raise ValueError("The file format is not supported. Please upload a CSV or Excel file.")
+    return data
 
-if api_key:
-    openai.api_key = api_key
-
-def load_file():
-    try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith('.xlsx'):
-            df = pd.read_excel(uploaded_file)
-        return df
-    except Exception as e:
-        st.write('Error occurred while loading data: ', e)
-        
-def generate_profile(df):
-    try:
-        pr = ProfileReport(df, explorative=True)
-        return pr
-    except Exception as e:
-        st.write('Error occurred while generating profile: ', e)
-
+# Function to Extract Features using GPT-3
 def extract_features(df, columns_to_use):
     progress_bar = st.progress(0)
     allowed_columns = ['Strain', 'Brand', 'Unit', 'Flavor', 'THC', 'CBD']  # Define allowed columns
@@ -68,44 +64,50 @@ def extract_features(df, columns_to_use):
             st.write(f"Error occurred while processing row {i}: ", e)
     return df
 
-
-
-def save_file(df, filename, fileformat):
-    try:
-        if fileformat == 'CSV':
-            df.to_csv(f"{filename}.csv", sep=',', encoding='utf-8')
-
-            # df.to_csv(f"{filename}.csv", sep='\t', encoding='utf-8')
-        elif fileformat == 'Excel':
-            df.to_excel(f"{filename}.xlsx", index=False)
-        st.success(f'File saved as {fileformat} successfully.')
-    except Exception as e:
-        st.write(f'Error occurred while saving data as {fileformat}: ', e)
-
 if uploaded_file is not None:
-    df = load_file()
-    if df is not None:
-        st.header('**Input DataFrame**')
-        st.write(df)
+    df = load_data(uploaded_file)
+    st.write('---')
+    st.header('**Input DataFrame**')
+    st.write(df)
+    
+    # Pandas Profiling Report
+    pr = ProfileReport(df, explorative=True)
+    st.write('---')
+    st.header('**Profiling Report**')
+    st_profile_report(pr)
+
+    # GPT-3 Extraction
+    st.write('---')
+    st.header('**GPT-3 Extraction**')
+    api_key = st.text_input('Enter your OpenAI API Key: ')
+    openai.api_key = api_key
+    all_columns = df.columns.tolist()
+    selected_columns = st.multiselect('Select the columns to be used for GPT extraction', all_columns)
+
+    if st.button('Run GPT extraction'):
+        # Call the function to extract features using OpenAI GPT
+        extracted_df = extract_features(df, selected_columns)
+
         st.write('---')
-        pr = generate_profile(df)
-        if pr is not None:
-            st.header('**Profiling Report**')
-            st_profile_report(pr)
-        
-        if api_key:
-            selected_columns = st.multiselect('Select columns to use for GPT extraction', df.columns)
-            filename = st.text_input('Input the output file name')
-            fileformat = st.selectbox('Select the output file format', ['CSV', 'Excel'])
-            
-            if st.button('Run GPT extraction'):
-                df = extract_features(df.head(5), selected_columns)
-                st.write(df)
-                if filename:
-                    save_file(df, filename, fileformat)
-                else:
-                    st.error('Please provide a file name for the output file.')
+        st.header('**GPT Extraction Results**')
+        st.dataframe(extracted_df)
+
+        # Save output
+        if output_format == 'csv':
+            csv = extracted_df.to_csv(index=False)
+            st.download_button('Download CSV File', data=csv, file_name=output_file+'.csv', mime='text/csv')
+        elif output_format == 'excel':
+            towrite = io.BytesIO()
+            extracted_df.to_excel(towrite, index=False) 
+            towrite.seek(0)  
+            st.download_button('Download Excel File', data=towrite, file_name=output_file+'.xlsx', mime='application/vnd.ms-excel')
         else:
-            st.info('Please provide an OpenAI API key to extract features.')
+            csv = extracted_df.to_csv(index=False)
+            st.download_button('Download CSV File', data=csv, file_name=output_file+'.csv', mime='text/csv')
+            
+            towrite = io.BytesIO()
+            extracted_df.to_excel(towrite, index=False) 
+            towrite.seek(0)  
+            st.download_button('Download Excel File', data=towrite, file_name=output_file+'.xlsx', mime='application/vnd.ms-excel')
 else:
-    st.info('Awaiting for CSV or Excel file to be uploaded.')
+    st.info('Awaiting for CSV or Excel file to be uploaded. Please see the sidebar to upload.')
